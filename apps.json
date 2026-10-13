@@ -1,5 +1,5 @@
 {
-  "$comment": "Single source of truth: CI matrix, docker-compose.yml and hub/nginx.conf are generated from this file (scripts/generate.py). `id` is the image name suffix (<id>-web), the compose service and the hub path (/<id>/). `repo` is the GitHub repo; `ref` pins a branch/tag (default: the repo's latest release). `web_dir` is the Trunk app inside the repo. `hub` names the app served at / (the launcher in hub mode).",
+  "$comment": "Single source of truth: CI matrix, docker-compose.yml and hub/nginx.conf are generated from this file (scripts/generate.py). `id` is the image name suffix (<id>-web), the compose service and the hub path (/<id>/). `repo` is the GitHub repo; `ref` pins a branch/tag (default: the repo's latest release). `hub` names the app served at / (the launcher in hub mode).",
   "hub": "craft-launcher",
   "apps": [
     {
@@ -7,7 +7,6 @@
       "name": "PhotoCraft",
       "tagline": "Image editing",
       "color": "#2f7bf5",
-      "web_dir": "apps/photocraft-web",
       "repo": "storytold/photocraft"
     },
     {
@@ -15,7 +14,6 @@
       "name": "VectorCraft",
       "tagline": "Vector illustration",
       "color": "#e8573f",
-      "web_dir": "apps/vectorcraft-web",
       "repo": "storytold/vectorcraft"
     },
     {
@@ -23,7 +21,6 @@
       "name": "FilmCraft",
       "tagline": "Video editing, color and sound",
       "color": "#8b5cf6",
-      "web_dir": "apps/filmcraft-web",
       "repo": "storytold/filmcraft"
     },
     {
@@ -31,7 +28,6 @@
       "name": "LightCraft",
       "tagline": "Photo library and raw development",
       "color": "#f2a516",
-      "web_dir": "apps/lightcraft-web",
       "repo": "storytold/lightcraft"
     },
     {
@@ -39,7 +35,6 @@
       "name": "PdfCraft",
       "tagline": "Reading, organizing and protecting PDFs",
       "color": "#12a58a",
-      "web_dir": "apps/pdfcraft-web",
       "repo": "storytold/pdfcraft"
     },
     {
@@ -47,7 +42,6 @@
       "name": "EffectCraft",
       "tagline": "Motion graphics and visual effects",
       "color": "#e0368f",
-      "web_dir": "apps/effectcraft-web",
       "repo": "storytold/effectcraft"
     },
     {
@@ -55,7 +49,6 @@
       "name": "DesignCraft",
       "tagline": "Page layout and publishing",
       "color": "#7bb51c",
-      "web_dir": "apps/designcraft-web",
       "repo": "storytold/designcraft"
     },
     {
@@ -63,7 +56,6 @@
       "name": "WordCraft",
       "tagline": "Writing and document design",
       "color": "#3f5fe0",
-      "web_dir": "apps/wordcraft-web",
       "repo": "storytold/wordcraft"
     },
     {
@@ -71,7 +63,6 @@
       "name": "DeckCraft",
       "tagline": "Presentations and slide shows",
       "color": "#f07a1e",
-      "web_dir": "apps/deckcraft-web",
       "repo": "storytold/deckcraft"
     },
     {
@@ -79,7 +70,6 @@
       "name": "GridCraft",
       "tagline": "Spreadsheets and data",
       "color": "#1f9d55",
-      "web_dir": "apps/gridcraft-web",
       "repo": "storytold/gridcraft"
     },
     {
@@ -87,7 +77,6 @@
       "name": "CADCraft",
       "tagline": "Computer-aided design and drafting",
       "color": "#3ea6e8",
-      "web_dir": "apps/cadcraft-web",
       "repo": "storytold/cadcraft"
     },
     {
@@ -95,7 +84,6 @@
       "name": "SoundCraft",
       "tagline": "Recording, editing and mixing audio",
       "color": "#1fa5c9",
-      "web_dir": "apps/soundcraft-web",
       "repo": "storytold/soundcraft"
     },
     {
@@ -103,7 +91,6 @@
       "name": "FigCraft",
       "tagline": "Interface design and prototyping",
       "color": "#a855f7",
-      "web_dir": "apps/figcraft-web",
       "repo": "storytold/figcraft"
     },
     {
@@ -111,7 +98,6 @@
       "name": "ArtCraft Launcher",
       "tagline": "This hub: the suite in the browser",
       "color": "#5c5c66",
-      "web_dir": "apps/artcraft-launcher-web",
       "repo": "millianlmx/craft-launcher",
       "ref": "web-hub"
     }

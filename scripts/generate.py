@@ -20,7 +20,7 @@ def load_apps():
     ids = [a["id"] for a in apps]
     assert len(ids) == len(set(ids)), "duplicate app id"
     for a in apps:
-        assert set(a) >= {"id", "name", "tagline", "color", "web_dir"}, a
+        assert set(a) >= {"id", "name", "tagline", "color", "repo"}, a
         assert a["id"] == a["id"].lower() and "/" not in a["id"], a["id"]
     return apps
 

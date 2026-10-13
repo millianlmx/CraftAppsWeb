@@ -5,8 +5,8 @@ ArtCraft Launcher (web build, hub mode) as the front page, deployable as one Por
 an external Traefik.
 
 ```
-apps.json                 the suite: id, name, repo, Trunk app dir, …  (source of truth)
-docker/app.Dockerfile     generic image: trunk build of apps/<id>-web → nginx on :8080
+apps.json                 the suite: id, name, repo, optional ref  (source of truth)
+docker/app.Dockerfile     generic image: the repo's packaging/web/package.sh → nginx on :8080
 docker/nginx.conf         nginx config baked into every app image
 hub/                      hub image: nginx, / → the launcher, /<id>/ → each app
 scripts/generate.py       writes docker-compose.yml and hub/nginx.conf from apps.json

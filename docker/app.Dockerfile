@@ -5,13 +5,14 @@
 # Named context  = `--build-context cfg=<this repo>/docker` (nginx.conf).
 #
 #   docker buildx build -f docker/app.Dockerfile --build-context cfg=docker \
-#     --build-arg APP=photocraft --build-arg WEB_DIR=apps/photocraft-web \
-#     --build-arg VERSION=0.8.2 --build-arg BUILD_SHA=$(git -C src rev-parse HEAD) \
+#     --build-arg APP=photocraft --build-arg VERSION=0.8.2 --build-arg BUILD_SHA=$(git -C src rev-parse HEAD) \
 #     -t photocraft-web src
 #
-# Every app repo has the same shape (packaging/web/package.sh upstream): a Trunk app in
-# `apps/<app>-web` whose Trunk.toml writes `../../dist/web` with relative URLs, so the site works
-# under any path prefix (the hub serves it at /<app>/).
+# Every app repo ships `packaging/web/package.sh`, the script its own release CI runs: it builds
+# the site (trunk for most apps; `cargo xtask web` + wasm-bindgen for lightcraft, effectcraft and
+# filmcraft) with relative URLs and zips it as dist/release/<APP>-web-<VERSION>.zip containing
+# <APP>-web-<VERSION>/. That zip is the one contract this image relies on, so the apps' differing
+# layouts (Trunk.toml or not, apps/<app>-web/web/, xtask) never matter here.
 #
 # Derived from storytold/photocraft's Dockerfile. The wasm is built once on the build host
 # (--platform=$BUILDPLATFORM) and copied into a runtime image per target platform.
@@ -22,8 +23,10 @@ ARG NGINX_VERSION=1.28-alpine
 FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim-bookworm AS builder
 # Keep in sync with `trunk-version` in storytold/craft-common-actions release.yml.
 ARG TRUNK_VERSION=0.21.14
+# wasm-opt for the xtask-built apps (trunk downloads its own).
+ARG BINARYEN_VERSION=133
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl git zip unzip \
     && rm -rf /var/lib/apt/lists/* \
     && rustup target add wasm32-unknown-unknown
 RUN set -eu; \
@@ -40,10 +43,15 @@ RUN set -eu; \
     printf '%s  %s\n' "$(cat "$asset.sha256")" "$asset" | sha256sum -c -; \
     tar -xzf "$asset" -C /usr/local/bin trunk; \
     rm "$asset" "$asset.sha256"; \
-    trunk --version
+    trunk --version; \
+    asset="binaryen-version_${BINARYEN_VERSION}-${arch}-linux.tar.gz"; \
+    curl -fsSL --retry 3 -A craft-apps-web "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/$asset" -o "$asset"; \
+    tar -xzf "$asset" --strip-components=2 -C /usr/local/bin "binaryen-version_${BINARYEN_VERSION}/bin/wasm-opt"; \
+    tar -xzf "$asset" --strip-components=1 -C /usr/local "binaryen-version_${BINARYEN_VERSION}/lib"; \
+    rm "$asset"; \
+    wasm-opt --version
 
 ARG APP
-ARG WEB_DIR=apps/${APP}-web
 ARG VERSION=0.0.0
 ARG BUILD_SHA=
 ARG BUILD_DATE=
@@ -54,30 +62,38 @@ ENV CARGO_TERM_COLOR=always CARGO_INCREMENTAL=0
 
 WORKDIR /src
 COPY . .
-# Build provenance, read by each app's build.rs as <APP>_BUILD_SHA / <APP>_BUILD_DATE (About
-# dialog and --version). Cargo args stay neutral: trunk reads the profile/features from index.html.
+# `cargo xtask web` (lightcraft, effectcraft, filmcraft) needs the wasm-bindgen CLI at exactly the
+# version in the repo's Cargo.lock; installed only for repos that use it.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    set -eu; \
+    if grep -q 'cargo xtask web' packaging/web/package.sh; then \
+        v="$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[" ]/, "", $3); print $3; exit }' Cargo.lock)"; \
+        test -n "$v"; \
+        cargo install wasm-bindgen-cli --version "$v" --locked; \
+    fi
+# Build provenance, read by each app's build.rs via packaging/env.sh as <APP>_VERSION /
+# <APP>_BUILD_SHA / <APP>_BUILD_DATE (.git isn't in the context, so the sha is passed in).
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,id=target-${APP} \
     --mount=type=cache,target=/root/.cache/trunk,id=trunk-${APP} \
     set -eu; \
     test -n "$APP" || { echo 'build-arg APP is required' >&2; exit 1; }; \
-    test -f "$WEB_DIR/index.html" || { echo "$WEB_DIR/index.html not found" >&2; exit 1; }; \
+    test -f packaging/web/package.sh || { echo 'packaging/web/package.sh not found' >&2; exit 1; }; \
     prefix="$(printf '%s' "$APP" | tr 'a-z-' 'A-Z_')"; \
     [ "$APP" = craft-launcher ] && prefix=ARTCRAFT_LAUNCHER; \
-    export "${prefix}_VERSION=$VERSION" "${prefix}_BUILD_SHA=$BUILD_SHA" "${prefix}_BUILD_DATE=$BUILD_DATE" \
-           "VERSION=$VERSION" "BUILD_SHA=$BUILD_SHA" "BUILD_DATE=$BUILD_DATE"; \
-    (cd "$WEB_DIR" && trunk build --release --locked); \
-    test -s dist/web/index.html; \
-    if grep -Eq '(src|href)="/[^/]' dist/web/index.html; then \
-        echo 'dist/web/index.html has root-absolute URLs; it would break under /<app>/' >&2; exit 1; fi; \
-    printf '{"app":"%s","version":"%s","sha":"%s","date":"%s"}\n' "$APP" "$VERSION" "$BUILD_SHA" "$BUILD_DATE" > dist/web/version.json; \
-    mkdir -p dist/web/licenses; \
-    for f in LICENSE-MIT LICENSE-APACHE NOTICE ATTRIBUTION.md; do [ -f "$f" ] && cp "$f" dist/web/licenses/ || true; done; \
-    gzip -9 -k dist/web/*.wasm dist/web/*.js dist/web/index.html
+    export "${prefix}_VERSION=$VERSION" "${prefix}_BUILD_SHA=$BUILD_SHA" "${prefix}_BUILD_DATE=$BUILD_DATE"; \
+    bash packaging/web/package.sh; \
+    zipfile="$(ls dist/release/*-web-"$VERSION".zip)"; \
+    rm -rf /site && mkdir /site && unzip -q "$zipfile" -d /site; \
+    mv /site/*-web-"$VERSION" /site/web; \
+    test -s /site/web/index.html; \
+    printf '{"app":"%s","version":"%s","sha":"%s","date":"%s"}\n' "$APP" "$VERSION" "$BUILD_SHA" "$BUILD_DATE" > /site/web/version.json; \
+    rm -f /site/web/.htaccess /site/web/_headers; \
+    gzip -9 -k /site/web/*.wasm /site/web/*.js /site/web/index.html
 
 FROM nginx:${NGINX_VERSION} AS runtime
 COPY --from=cfg nginx.conf /etc/nginx/nginx.conf
-COPY --from=builder /src/dist/web/ /usr/share/nginx/html/
+COPY --from=builder /site/web/ /usr/share/nginx/html/
 # Bypass the stock entrypoint: this configuration needs no runtime rewriting.
 USER nginx
 EXPOSE 8080

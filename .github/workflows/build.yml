@@ -49,7 +49,7 @@ jobs:
         run: |
           matrix=$(jq -c --arg only "$ONLY" '
             [.apps[] | select($only == "" or (.id as $i | ($only | split(",") | map(gsub("^\\s+|\\s+$"; "")) | index($i)) != null))
-             | {id, web_dir, repo, ref: (.ref // "")}]' apps.json)
+             | {id, repo, ref: (.ref // "")}]' apps.json)
           test "$matrix" != "[]" || { echo "no app matches '$ONLY'" >&2; exit 1; }
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "push=${{ github.event_name != 'workflow_dispatch' || inputs.push }}" >> "$GITHUB_OUTPUT"
@@ -142,7 +142,6 @@ jobs:
           labels: ${{ steps.tags.outputs.labels }}
           build-args: |
             APP=${{ matrix.app.id }}
-            WEB_DIR=${{ matrix.app.web_dir }}
             VERSION=${{ steps.meta.outputs.version }}
             BUILD_SHA=${{ steps.meta.outputs.sha }}
             BUILD_DATE=${{ steps.meta.outputs.date }}
