@@ -1,11 +1,15 @@
 name: Build and push images
 
+# Every 3 hours (and on push / by hand): resolve each app's upstream ref to a commit and build its
+# image only if the registry has no `sha-<commit>` tag yet. The registry is the only state, so
+# nothing is tracked in this repo; a push that touches docker/ rebuilds every app, a push rebuilds
+# the hub. Deployment is pull-based: Watchtower in the stack picks up the new `latest` images.
+
 on:
   push:
     branches: [main]
   schedule:
-    # Weekly: pick up new upstream releases.
-    - cron: "17 4 * * 1"
+    - cron: "23 */3 * * *"
   workflow_dispatch:
     inputs:
       apps:
@@ -17,6 +21,10 @@ on:
         type: choice
         options: [release, main]
         default: release
+      force:
+        description: "Rebuild even if the registry already has this commit"
+        type: boolean
+        default: false
       push:
         description: "Push to the registry"
         type: boolean
@@ -31,32 +39,101 @@ env:
   PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
-  check:
-    name: Generated files
+  detect:
+    name: Detect updates
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-      push: ${{ steps.matrix.outputs.push }}
+      matrix: ${{ steps.detect.outputs.matrix }}
+      hub: ${{ steps.detect.outputs.hub }}
+      push: ${{ steps.detect.outputs.push }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - run: python3 scripts/generate.py --check
       - name: Compose file is valid
         run: docker compose config --quiet
-      - name: Build matrix
-        id: matrix
+
+      # Read access is enough here; without it (private images on another registry, no
+      # credentials) every tag looks missing and everything is rebuilt, which is the safe side.
+      - uses: docker/login-action@v3
+        continue-on-error: true
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Resolve upstream commits and compare with the registry
+        id: detect
         env:
+          GH_TOKEN: ${{ github.token }}
           ONLY: ${{ inputs.apps }}
+          SOURCE: ${{ inputs.source || 'release' }}
+          FORCE: ${{ inputs.force || 'false' }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          matrix=$(jq -c --arg only "$ONLY" '
+          set -eu
+          image_base="$REGISTRY/$IMAGE_NAMESPACE"
+          exists() { docker manifest inspect "$1" >/dev/null 2>&1; }
+
+          force=$FORCE
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null || ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- docker; then
+              echo "docker/ changed in this push: rebuilding every app"
+              force=true
+            fi
+          fi
+
+          selected=$(jq -c --arg only "$ONLY" '
             [.apps[] | select($only == "" or (.id as $i | ($only | split(",") | map(gsub("^\\s+|\\s+$"; "")) | index($i)) != null))
              | {id, repo, ref: (.ref // "")}]' apps.json)
-          test "$matrix" != "[]" || { echo "no app matches '$ONLY'" >&2; exit 1; }
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "push=${{ github.event_name != 'workflow_dispatch' || inputs.push }}" >> "$GITHUB_OUTPUT"
+          test "$selected" != "[]" || { echo "no app matches '$ONLY'" >&2; exit 1; }
+
+          matrix='[]'
+          {
+            echo "| App | Ref | Commit | Status |"
+            echo "|-----|-----|--------|--------|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for row in $(echo "$selected" | jq -r '.[] | @base64'); do
+            app=$(echo "$row" | base64 -d)
+            id=$(echo "$app" | jq -r .id); repo=$(echo "$app" | jq -r .repo); ref=$(echo "$app" | jq -r .ref)
+            if [ -z "$ref" ] && [ "$SOURCE" = release ]; then
+              ref=$(gh api "repos/$repo/releases/latest" --jq .tag_name)
+            elif [ -z "$ref" ]; then
+              ref=$(gh api "repos/$repo" --jq .default_branch)
+            fi
+            sha=$(gh api "repos/$repo/commits/$ref" --jq .sha)
+            if [ "$force" != true ] && exists "$image_base/$id-web:sha-$sha"; then
+              status="up to date"
+            else
+              status="**build**"
+              matrix=$(echo "$matrix" | jq -c --arg id "$id" --arg repo "$repo" --arg ref "$ref" --arg sha "$sha" \
+                '. + [{id: $id, repo: $repo, ref: $ref, sha: $sha}]')
+            fi
+            echo "$id: $repo@$ref ($sha) -> $status"
+            echo "| $id | $ref | \`${sha:0:12}\` | $status |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          if [ "$force" = true ] || ! exists "$image_base/craft-apps-hub:sha-$GITHUB_SHA"; then
+            hub=true; status="**build**"
+          else
+            hub=false; status="up to date"
+          fi
+          echo "| hub | main | \`${GITHUB_SHA:0:12}\` | $status |" >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "matrix=$matrix"
+            echo "hub=$hub"
+            echo "push=${{ github.event_name != 'workflow_dispatch' || inputs.push }}"
+          } >> "$GITHUB_OUTPUT"
 
   app:
     name: ${{ matrix.app.id }}
-    needs: check
+    needs: detect
+    if: needs.detect.outputs.matrix != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
@@ -66,32 +143,14 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        app: ${{ fromJson(needs.check.outputs.matrix) }}
+        app: ${{ fromJson(needs.detect.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Resolve upstream ref
-        id: ref
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ matrix.app.repo }}
-          PINNED: ${{ matrix.app.ref }}
-          SOURCE: ${{ inputs.source || 'release' }}
-        run: |
-          if [ -n "$PINNED" ]; then
-            ref=$PINNED
-          elif [ "$SOURCE" = release ]; then
-            ref=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
-          else
-            ref=$(gh api "repos/$REPO" --jq .default_branch)
-          fi
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "building $REPO @ $ref"
 
       - uses: actions/checkout@v4
         with:
           repository: ${{ matrix.app.repo }}
-          ref: ${{ steps.ref.outputs.ref }}
+          ref: ${{ matrix.app.sha }}
           path: src
 
       - name: Version and provenance
@@ -102,9 +161,9 @@ jobs:
           test -n "$version" || { echo "no [workspace.package] version in src/Cargo.toml" >&2; exit 1; }
           {
             echo "version=$version"
-            echo "sha=$(git -C src rev-parse HEAD)"
             echo "date=$(date -u +%F)"
           } >> "$GITHUB_OUTPUT"
+          echo "building ${{ matrix.app.repo }} @ ${{ matrix.app.ref }} (${{ matrix.app.sha }}) = $version"
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
 
@@ -112,7 +171,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
-        if: needs.check.outputs.push == 'true'
+        if: needs.detect.outputs.push == 'true'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
@@ -125,10 +184,10 @@ jobs:
           tags: |
             type=raw,value=latest
             type=raw,value=${{ steps.meta.outputs.version }}
-            type=raw,value=sha-${{ steps.meta.outputs.sha }}
+            type=raw,value=sha-${{ matrix.app.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ matrix.app.repo }}
-            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+            org.opencontainers.image.revision=${{ matrix.app.sha }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
 
       - uses: docker/build-push-action@v6
@@ -137,20 +196,21 @@ jobs:
           file: docker/app.Dockerfile
           build-contexts: cfg=docker
           platforms: ${{ env.PLATFORMS }}
-          push: ${{ needs.check.outputs.push == 'true' }}
+          push: ${{ needs.detect.outputs.push == 'true' }}
           tags: ${{ steps.tags.outputs.tags }}
           labels: ${{ steps.tags.outputs.labels }}
           build-args: |
             APP=${{ matrix.app.id }}
             VERSION=${{ steps.meta.outputs.version }}
-            BUILD_SHA=${{ steps.meta.outputs.sha }}
+            BUILD_SHA=${{ matrix.app.sha }}
             BUILD_DATE=${{ steps.meta.outputs.date }}
           cache-from: type=gha,scope=${{ matrix.app.id }}
           cache-to: type=gha,scope=${{ matrix.app.id }},mode=max
 
   hub:
     name: hub
-    needs: check
+    needs: detect
+    if: needs.detect.outputs.hub == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -160,7 +220,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
-        if: needs.check.outputs.push == 'true'
+        if: needs.detect.outputs.push == 'true'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
@@ -177,7 +237,7 @@ jobs:
           context: .
           file: hub/Dockerfile
           platforms: ${{ env.PLATFORMS }}
-          push: ${{ needs.check.outputs.push == 'true' }}
+          push: ${{ needs.detect.outputs.push == 'true' }}
           tags: ${{ steps.tags.outputs.tags }}
           labels: ${{ steps.tags.outputs.labels }}
           cache-from: type=gha,scope=hub

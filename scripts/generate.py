@@ -30,16 +30,23 @@ def compose(apps):
 # Portainer stack. Only the hub joins the external `traefik-network`; the apps sit on an
 # internal network and the hub reverse-proxies them (/ → the launcher, /<app>/ → each app).
 #
+# Deployment: CI pushes new `latest` images; the `watchtower` service polls the registry and
+# recreates the stack's containers (scope label `craft-apps`, nothing else on the host) when an
+# image digest changes. Portainer CE has no stack webhook, so updates are pull-based.
+#
 # Stack variables (Portainer "Environment variables" or stack.env):
 #   IMAGE_PREFIX   registry/namespace of the images   (default ghcr.io/millianlmx)
 #   TAG            image tag for every app and the hub (default latest)
 #   HUB_HOST       public hostname routed by Traefik   (default craft.1000co.fr)
+#   POLL_INTERVAL  seconds between registry checks     (default 600)
 
 x-app: &app
   restart: always
   read_only: true
   tmpfs:
     - /tmp
+  labels:
+    - "com.centurylinklabs.watchtower.scope=craft-apps"
   networks:
     - craft-network
   healthcheck:
@@ -58,6 +65,7 @@ services:
     tmpfs:
       - /tmp
     labels:
+      - "com.centurylinklabs.watchtower.scope=craft-apps"
       - "traefik.enable=true"
       - "traefik.http.routers.craft-hub.rule=Host(`${HUB_HOST:-craft.1000co.fr}`)"
       - "traefik.http.routers.craft-hub.entrypoints=websecure"
@@ -82,6 +90,20 @@ services:
     image: ${{IMAGE_PREFIX:-ghcr.io/millianlmx}}/{a["id"]}-web:${{TAG:-latest}}
 """)
     out.append("""
+  watchtower:
+    container_name: craft_watchtower
+    image: nickfedor/watchtower:latest
+    restart: always
+    labels:
+      - "com.centurylinklabs.watchtower.scope=craft-apps"
+    environment:
+      WATCHTOWER_SCOPE: craft-apps
+      WATCHTOWER_POLL_INTERVAL: ${POLL_INTERVAL:-600}
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
 networks:
   craft-network:
     internal: true
