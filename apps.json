@@ -1,0 +1,19 @@
+{
+  "$comment": "Single source of truth: CI matrix, docker-compose.yml and hub/nginx.conf are generated from this file (scripts/generate.py). `id` is the GitHub repo under storytold/, the image name suffix (<id>-web), the compose service and the hub path (/<id>/). `web_dir` is the Trunk app inside the repo.",
+  "apps": [
+    { "id": "photocraft",   "name": "PhotoCraft",   "tagline": "Image editing",                          "color": "#2f7bf5", "web_dir": "apps/photocraft-web" },
+    { "id": "vectorcraft",  "name": "VectorCraft",  "tagline": "Vector illustration",                    "color": "#e8573f", "web_dir": "apps/vectorcraft-web" },
+    { "id": "filmcraft",    "name": "FilmCraft",    "tagline": "Video editing, color and sound",         "color": "#8b5cf6", "web_dir": "apps/filmcraft-web" },
+    { "id": "lightcraft",   "name": "LightCraft",   "tagline": "Photo library and raw development",      "color": "#f2a516", "web_dir": "apps/lightcraft-web" },
+    { "id": "pdfcraft",     "name": "PdfCraft",     "tagline": "Reading, organizing and protecting PDFs", "color": "#12a58a", "web_dir": "apps/pdfcraft-web" },
+    { "id": "effectcraft",  "name": "EffectCraft",  "tagline": "Motion graphics and visual effects",     "color": "#e0368f", "web_dir": "apps/effectcraft-web" },
+    { "id": "designcraft",  "name": "DesignCraft",  "tagline": "Page layout and publishing",             "color": "#7bb51c", "web_dir": "apps/designcraft-web" },
+    { "id": "wordcraft",    "name": "WordCraft",    "tagline": "Writing and document design",            "color": "#3f5fe0", "web_dir": "apps/wordcraft-web" },
+    { "id": "deckcraft",    "name": "DeckCraft",    "tagline": "Presentations and slide shows",          "color": "#f07a1e", "web_dir": "apps/deckcraft-web" },
+    { "id": "gridcraft",    "name": "GridCraft",    "tagline": "Spreadsheets and data",                  "color": "#1f9d55", "web_dir": "apps/gridcraft-web" },
+    { "id": "cadcraft",     "name": "CADCraft",     "tagline": "Computer-aided design and drafting",     "color": "#3ea6e8", "web_dir": "apps/cadcraft-web" },
+    { "id": "soundcraft",   "name": "SoundCraft",   "tagline": "Recording, editing and mixing audio",    "color": "#1fa5c9", "web_dir": "apps/soundcraft-web" },
+    { "id": "figcraft",     "name": "FigCraft",     "tagline": "Interface design and prototyping",       "color": "#a855f7", "web_dir": "apps/figcraft-web" },
+    { "id": "craft-launcher", "name": "ArtCraft Launcher", "tagline": "Desktop downloads for the whole suite", "color": "#5c5c66", "web_dir": "apps/artcraft-launcher-web" }
+  ]
+}
