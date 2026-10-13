@@ -1,17 +1,31 @@
 # Craft Apps Web
 
-Docker images of every [storytold](https://github.com/storytold) Craft App's browser build, plus a
-hub page that links to them, deployable as one Portainer stack behind an external Traefik.
+Docker images of every [storytold](https://github.com/storytold) Craft App's browser build, with the
+ArtCraft Launcher (web build, hub mode) as the front page, deployable as one Portainer stack behind
+an external Traefik.
 
 ```
-apps.json                 the suite: id, name, tagline, colour, Trunk app dir  (source of truth)
+apps.json                 the suite: id, name, repo, Trunk app dir, …  (source of truth)
 docker/app.Dockerfile     generic image: trunk build of apps/<id>-web → nginx on :8080
 docker/nginx.conf         nginx config baked into every app image
-hub/                      hub image: static page + reverse proxy /<id>/ → <id>:8080
+hub/                      hub image: nginx, / → the launcher, /<id>/ → each app
 scripts/generate.py       writes docker-compose.yml and hub/nginx.conf from apps.json
 docker-compose.yml        the Portainer stack (generated)
 .github/workflows/build.yml
 ```
+
+## The launcher as hub
+
+The front page is storytold's own egui launcher, web build, from the fork
+[millianlmx/craft-launcher@web-hub](https://github.com/millianlmx/craft-launcher/tree/web-hub)
+(one commit on top of upstream, see its message). Its `index.html` carries
+`<meta name="craft-web-apps" content="./">`: the launcher then probes `./<id>/version.json` for
+each app, shows **Open** (new tab, the app's browser build) where one is deployed, **Not
+available** where none answers, and keeps the desktop download in the card's `…` menu. Upstream's
+release checks (GitHub API, from the visitor's browser) are unchanged.
+
+To follow upstream: rebase `web-hub` on `storytold/craft-launcher` main; CI pins that branch via
+`"ref": "web-hub"` in `apps.json`.
 
 ## Images
 
@@ -46,9 +60,8 @@ Create a stack from this repo's `docker-compose.yml` and set:
 | `TRAEFIK_RESOLVER`   | `letsencrypt`          | Traefik certificate resolver             |
 
 Only `hub` joins the Traefik network. The apps sit on an internal network; the hub proxies
-`https://HUB_HOST/<id>/` to each one and shows on its front page which apps are up and which
-version they run (from `/<id>/version.json`, written at build time). An app that is stopped or
-removed from the stack is shown offline; nothing else breaks.
+`https://HUB_HOST/` to the launcher and `https://HUB_HOST/<id>/` to each app. An app that is
+stopped or removed from the stack shows as not available in the launcher; nothing else breaks.
 
 To serve a subset, delete the unwanted services from the stack: the hub tolerates missing
 upstreams. Private GHCR images need a registry credential in Portainer.

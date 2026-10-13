@@ -49,7 +49,7 @@ jobs:
         run: |
           matrix=$(jq -c --arg only "$ONLY" '
             [.apps[] | select($only == "" or (.id as $i | ($only | split(",") | map(gsub("^\\s+|\\s+$"; "")) | index($i)) != null))
-             | {id, web_dir}]' apps.json)
+             | {id, web_dir, repo, ref: (.ref // "")}]' apps.json)
           test "$matrix" != "[]" || { echo "no app matches '$ONLY'" >&2; exit 1; }
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "push=${{ github.event_name != 'workflow_dispatch' || inputs.push }}" >> "$GITHUB_OUTPUT"
@@ -74,10 +74,13 @@ jobs:
         id: ref
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: storytold/${{ matrix.app.id }}
+          REPO: ${{ matrix.app.repo }}
+          PINNED: ${{ matrix.app.ref }}
           SOURCE: ${{ inputs.source || 'release' }}
         run: |
-          if [ "$SOURCE" = release ]; then
+          if [ -n "$PINNED" ]; then
+            ref=$PINNED
+          elif [ "$SOURCE" = release ]; then
             ref=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
           else
             ref=$(gh api "repos/$REPO" --jq .default_branch)
@@ -87,7 +90,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          repository: storytold/${{ matrix.app.id }}
+          repository: ${{ matrix.app.repo }}
           ref: ${{ steps.ref.outputs.ref }}
           path: src
 
@@ -124,7 +127,7 @@ jobs:
             type=raw,value=${{ steps.meta.outputs.version }}
             type=raw,value=sha-${{ steps.meta.outputs.sha }}
           labels: |
-            org.opencontainers.image.source=https://github.com/storytold/${{ matrix.app.id }}
+            org.opencontainers.image.source=https://github.com/${{ matrix.app.repo }}
             org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
 

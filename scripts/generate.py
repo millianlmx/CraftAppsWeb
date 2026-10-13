@@ -104,10 +104,12 @@ networks:
     return "".join(out)
 
 
-def hub_nginx(apps):
+def hub_nginx(apps, hub):
     locations = []
     for a in apps:
         i = a["id"]
+        if i == hub:
+            continue
         locations.append(f"""
         location = /{i} {{ return 301 /{i}/; }}
         location /{i}/ {{
@@ -145,8 +147,6 @@ http {
     server {
         listen 8080;
         listen [::]:8080;
-        root /usr/share/nginx/html;
-        index index.html;
         add_header X-Content-Type-Options nosniff always;
 
         location = /healthz {
@@ -155,38 +155,34 @@ http {
             return 200 "ok\\n";
         }
 
-        location = /apps.json {
-            add_header Cache-Control no-cache always;
-            add_header X-Content-Type-Options nosniff always;
-        }
-
-        location = /index.html {
-            add_header Cache-Control no-cache always;
-            add_header X-Content-Type-Options nosniff always;
-        }
-
-        # An app that is not deployed (or still starting) answers 502 with a short message
-        # instead of nginx's default page; the hub page shows it as offline.
+        # An app that is not deployed (or still starting) answers with a short message instead
+        # of nginx's default page; the launcher shows it as not available.
         error_page 502 503 504 = @down;
         location @down {
             default_type text/plain;
             return 503 "This Craft App is not running.\\n";
         }
-""" + "".join(locations) + """
+""" + "".join(locations) + f"""
 
-        location / {
-            try_files $uri $uri/ =404;
-        }
-    }
-}
+        # The launcher (hub mode: its index.html says the apps are at ./<id>/) is the front page.
+        location / {{
+            set $upstream http://{hub}:8080;
+            proxy_pass $upstream;
+            include /etc/nginx/proxy.conf;
+        }}
+    }}
+}}
 """
 
 
 def main():
+    catalog = json.loads((ROOT / "apps.json").read_text())
     apps = load_apps()
+    hub = catalog["hub"]
+    assert any(a["id"] == hub for a in apps), f"hub {hub!r} is not in apps"
     files = {
         ROOT / "docker-compose.yml": compose(apps),
-        ROOT / "hub" / "nginx.conf": hub_nginx(apps),
+        ROOT / "hub" / "nginx.conf": hub_nginx(apps, hub),
     }
     if "--check" in sys.argv:
         stale = [p for p, c in files.items() if not p.exists() or p.read_text() != c]
