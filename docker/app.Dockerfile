@@ -89,7 +89,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     test -s /site/web/index.html; \
     printf '{"app":"%s","version":"%s","sha":"%s","date":"%s"}\n' "$APP" "$VERSION" "$BUILD_SHA" "$BUILD_DATE" > /site/web/version.json; \
     rm -f /site/web/.htaccess /site/web/_headers; \
-    gzip -9 -k /site/web/*.wasm /site/web/*.js /site/web/index.html
+    gzip -9 -k -f /site/web/*.wasm /site/web/*.js /site/web/index.html
 
 FROM nginx:${NGINX_VERSION} AS runtime
 COPY --from=cfg nginx.conf /etc/nginx/nginx.conf
