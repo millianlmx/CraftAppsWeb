@@ -28,78 +28,65 @@ def load_apps():
 def compose(apps):
     out = [HEADER, """#
 # Portainer stack. Only the hub joins the external `traefik-network`; the apps sit on an
-# internal network and the hub reverse-proxies them under /<app>/.
+# internal network and the hub reverse-proxies them (/ → the launcher, /<app>/ → each app).
 #
-# Stack variables (Portainer "Environment variables" or a .env file):
-#   IMAGE_PREFIX       registry/namespace of the images       (default ghcr.io/millianlmx)
-#   TAG                image tag for every app and the hub    (default latest)
-#   HUB_HOST           public hostname routed by Traefik      (required)
-#   TRAEFIK_ENTRYPOINT Traefik entrypoint name                (default websecure)
-#   TRAEFIK_RESOLVER   Traefik certificate resolver           (default letsencrypt)
-#   TRAEFIK_NETWORK    the external Traefik network           (default traefik-network)
+# Stack variables (Portainer "Environment variables" or stack.env):
+#   IMAGE_PREFIX   registry/namespace of the images   (default ghcr.io/millianlmx)
+#   TAG            image tag for every app and the hub (default latest)
+#   HUB_HOST       public hostname routed by Traefik   (default craft.1000co.fr)
 
 x-app: &app
-  restart: unless-stopped
+  restart: always
   read_only: true
   tmpfs:
     - /tmp
   networks:
-    - apps
+    - craft-network
   healthcheck:
     test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
     interval: 30s
     timeout: 3s
     retries: 3
     start_period: 5s
-  logging:
-    driver: json-file
-    options:
-      max-size: "5m"
-      max-file: "2"
 
 services:
   hub:
+    container_name: craft_hub
     image: ${IMAGE_PREFIX:-ghcr.io/millianlmx}/craft-apps-hub:${TAG:-latest}
-    restart: unless-stopped
+    restart: always
     read_only: true
     tmpfs:
       - /tmp
-    networks:
-      - apps
-      - traefik
     labels:
-      traefik.enable: "true"
-      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik-network}
-      traefik.http.routers.craft-hub.rule: Host(`${HUB_HOST:?set HUB_HOST}`)
-      traefik.http.routers.craft-hub.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
-      traefik.http.routers.craft-hub.tls: "true"
-      traefik.http.routers.craft-hub.tls.certresolver: ${TRAEFIK_RESOLVER:-letsencrypt}
-      traefik.http.services.craft-hub.loadbalancer.server.port: "8080"
+      - "traefik.enable=true"
+      - "traefik.http.routers.craft-hub.rule=Host(`${HUB_HOST:-craft.1000co.fr}`)"
+      - "traefik.http.routers.craft-hub.entrypoints=websecure"
+      - "traefik.http.routers.craft-hub.tls.certresolver=myresolver"
+      - "traefik.http.services.craft-hub.loadbalancer.server.port=8080"
+      - "traefik.docker.network=traefik-network"
+    networks:
+      - craft-network
+      - traefik-network
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 30s
       timeout: 3s
       retries: 3
       start_period: 5s
-    logging:
-      driver: json-file
-      options:
-        max-size: "5m"
-        max-file: "2"
 """]
     for a in apps:
         out.append(f"""
   {a["id"]}:
     <<: *app
+    container_name: craft_{a["id"].replace("-", "_")}
     image: ${{IMAGE_PREFIX:-ghcr.io/millianlmx}}/{a["id"]}-web:${{TAG:-latest}}
 """)
     out.append("""
 networks:
-  apps:
+  craft-network:
     internal: true
-  traefik:
+  traefik-network:
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik-network}
 """)
     return "".join(out)
 

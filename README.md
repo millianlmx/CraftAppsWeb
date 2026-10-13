@@ -50,14 +50,14 @@ Repository settings:
 
 Create a stack from this repo's `docker-compose.yml` and set:
 
-| Variable             | Default                | Meaning                                  |
-|----------------------|------------------------|------------------------------------------|
-| `HUB_HOST`           | *(required)*           | hostname Traefik routes to the hub       |
-| `IMAGE_PREFIX`       | `ghcr.io/millianlmx`   | registry/namespace of the images         |
-| `TAG`                | `latest`               | tag used for every image                 |
-| `TRAEFIK_NETWORK`    | `traefik-network`      | the external Traefik network             |
-| `TRAEFIK_ENTRYPOINT` | `websecure`            | Traefik entrypoint                       |
-| `TRAEFIK_RESOLVER`   | `letsencrypt`          | Traefik certificate resolver             |
+| Variable       | Default                | Meaning                                |
+|----------------|------------------------|----------------------------------------|
+| `HUB_HOST`     | `craft.1000co.fr`      | hostname Traefik routes to the hub     |
+| `IMAGE_PREFIX` | `ghcr.io/millianlmx`   | registry/namespace of the images       |
+| `TAG`          | `latest`               | tag used for every image               |
+
+Traefik labels follow the other stacks on this host: entrypoint `websecure`, certresolver
+`myresolver`, network `traefik-network`.
 
 Only `hub` joins the Traefik network. The apps sit on an internal network; the hub proxies
 `https://HUB_HOST/` to the launcher and `https://HUB_HOST/<id>/` to each app. An app that is
